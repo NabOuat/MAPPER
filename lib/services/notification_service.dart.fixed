@@ -1,0 +1,192 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest.dart' as tz_data;
+
+class NotificationService {
+  static final NotificationService _instance = NotificationService._internal();
+  factory NotificationService() => _instance;
+  
+  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin = 
+      FlutterLocalNotificationsPlugin();
+  
+  NotificationService._internal() {
+    _initNotifications();
+  }
+  
+  /// Initialise le service de notifications
+  Future<void> _initNotifications() async {
+    tz_data.initializeTimeZones();
+    
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    
+    const DarwinInitializationSettings initializationSettingsIOS =
+        DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+    
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsIOS,
+    );
+    
+    await _flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: _onNotificationResponse,
+    );
+  }
+  
+  /// Demande les permissions de notification
+  Future<bool> requestPermissions() async {
+    // Dans la version 9.9.1, les permissions sont gérées différemment
+    // Pour Android, les permissions sont définies dans le manifest
+    // Pour iOS, nous pouvons demander les permissions directement
+    
+    final IOSFlutterLocalNotificationsPlugin? iOSPlugin =
+        _flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>();
+    
+    final bool? iOSGranted = await iOSPlugin?.requestPermissions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    
+    return iOSGranted ?? true; // Par défaut, considérer les permissions comme accordées sur Android
+  }
+  
+  /// Affiche une notification immédiate
+  Future<void> showNotification({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+      'ping_mapper_channel',
+      'Ping Mapper Notifications',
+      channelDescription: 'Notifications pour l\'application Ping Mapper',
+      importance: Importance.max,
+      priority: Priority.high,
+      showWhen: true,
+    );
+    
+    const DarwinNotificationDetails iOSPlatformChannelSpecifics =
+        DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    
+    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: iOSPlatformChannelSpecifics,
+    );
+    
+    await _flutterLocalNotificationsPlugin.show(
+      id,
+      title,
+      body,
+      platformChannelSpecifics,
+      payload: payload,
+    );
+  }
+  
+  /// Affiche une notification pour un nouveau message
+  Future<void> showMessageNotification({
+    required int id,
+    required String senderName,
+    required String message,
+    String? conversationId,
+  }) async {
+    await showNotification(
+      id: id,
+      title: 'Nouveau message de $senderName',
+      body: message,
+      payload: conversationId != null ? 'chat:$conversationId' : null,
+    );
+  }
+  
+  /// Affiche une notification pour un nouveau lieu à proximité
+  Future<void> showNearbyPlaceNotification({
+    required int id,
+    required String placeName,
+    required String userName,
+    required double distance,
+    String? placeId,
+  }) async {
+    final String formattedDistance = distance < 1.0
+        ? '${(distance * 1000).toStringAsFixed(0)} m'
+        : '${distance.toStringAsFixed(1)} km';
+    
+    await showNotification(
+      id: id,
+      title: 'Lieu à proximité : $placeName',
+      body: 'Ajouté par $userName à $formattedDistance de vous',
+      payload: placeId != null ? 'place:$placeId' : null,
+    );
+  }
+  
+  /// Planifie une notification pour plus tard
+  Future<void> scheduleNotification({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime scheduledDate,
+    String? payload,
+  }) async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+      'ping_mapper_scheduled_channel',
+      'Ping Mapper Scheduled Notifications',
+      channelDescription: 'Notifications planifiées pour l\'application Ping Mapper',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+    
+    const DarwinNotificationDetails iOSPlatformChannelSpecifics =
+        DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    
+    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: iOSPlatformChannelSpecifics,
+    );
+    
+    await _flutterLocalNotificationsPlugin.zonedSchedule(
+      id,
+      title,
+      body,
+      tz.TZDateTime.from(scheduledDate, tz.local),
+      platformChannelSpecifics,
+      androidAllowWhileIdle: true,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      payload: payload,
+    );
+  }
+  
+  /// Annule une notification spécifique
+  Future<void> cancelNotification(int id) async {
+    await _flutterLocalNotificationsPlugin.cancel(id);
+  }
+  
+  /// Annule toutes les notifications
+  Future<void> cancelAllNotifications() async {
+    await _flutterLocalNotificationsPlugin.cancelAll();
+  }
+  
+  /// Gère l'action lorsqu'une notification est tapée
+  void _onNotificationResponse(NotificationResponse response) {
+    final String? payload = response.payload;
+    debugPrint('Notification tapped: $payload');
+    // La navigation sera gérée par le code qui utilise ce service
+  }
+}
